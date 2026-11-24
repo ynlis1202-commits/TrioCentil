@@ -6,7 +6,14 @@ export default defineEventHandler(async (event) => {
 
   const notifications = await prisma.notification.findMany({
     orderBy: { createdAt: 'desc' },
-    take: 30
+    take: 30,
+    include: {
+      order: {
+        select: {
+          orderNumber: true
+        }
+      }
+    }
   })
 
   return {

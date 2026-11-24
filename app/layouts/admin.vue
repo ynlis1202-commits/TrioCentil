@@ -32,8 +32,18 @@ const navItems = [
   { label: 'Pengaturan', to: '/admin/pengaturan', icon: Settings }
 ]
 
+interface AdminNotification {
+  id: string
+  title: string
+  message: string
+  orderId: string | null
+  order?: { orderNumber: string } | null
+  isRead: boolean
+  createdAt: string
+}
+
 const { data: notifData, refresh: refreshNotifs } = await useFetch<{
-  data: Array<{ id: string; title: string; message: string; isRead: boolean; createdAt: string }>
+  data: AdminNotification[]
   unreadCount: number
 }>('/api/admin/notifications', {
   lazy: true,
@@ -43,6 +53,25 @@ const { data: notifData, refresh: refreshNotifs } = await useFetch<{
 async function markAllRead() {
   await $fetch('/api/admin/notifications/all/read', { method: 'PATCH' })
   await refreshNotifs()
+}
+
+async function handleNotificationClick(n: AdminNotification) {
+  notifOpen.value = false
+  if (!n.isRead) {
+    try {
+      await $fetch(`/api/admin/notifications/${n.id}/read`, { method: 'PATCH' })
+      await refreshNotifs()
+    } catch {
+      // Continue navigation even if mark-read fails
+    }
+  }
+
+  const orderNum = n.order?.orderNumber || n.title.match(/#(TC-[\d-]+)/)?.[1]
+  if (orderNum) {
+    await navigateTo(`/admin/pesanan?search=${encodeURIComponent(orderNum)}`)
+  } else {
+    await navigateTo('/admin/pesanan')
+  }
 }
 
 async function handleLogout() {
@@ -185,16 +214,25 @@ watch(
                 >
                   Belum ada notifikasi baru.
                 </div>
-                <div
+                <button
                   v-for="n in notifData?.data || []"
                   :key="n.id"
-                  class="px-4 py-3 text-xs"
+                  type="button"
+                  class="w-full text-left px-4 py-3 text-xs transition-colors hover:bg-pink-100/60 cursor-pointer flex items-start justify-between gap-2.5"
                   :class="n.isRead ? 'bg-white' : 'bg-[#FFF5F8]'"
+                  @click="handleNotificationClick(n)"
                 >
-                  <p class="font-bold text-stone-800">{{ n.title }}</p>
-                  <p class="text-stone-600 mt-0.5">{{ n.message }}</p>
-                  <p class="text-[10px] text-stone-400 mt-1">{{ formatDateJakarta(n.createdAt) }}</p>
-                </div>
+                  <div class="min-w-0 flex-1">
+                    <p class="font-bold text-stone-800">{{ n.title }}</p>
+                    <p class="text-stone-600 mt-0.5">{{ n.message }}</p>
+                    <p class="text-[10px] text-stone-400 mt-1">{{ formatDateJakarta(n.createdAt) }}</p>
+                  </div>
+                  <span
+                    v-if="!n.isRead"
+                    class="w-2 h-2 rounded-full bg-[#EC4899] shrink-0 mt-1.5"
+                    title="Belum dibaca"
+                  />
+                </button>
               </div>
             </div>
           </div>

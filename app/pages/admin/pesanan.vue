@@ -23,6 +23,16 @@ const toast = useToast()
 const statusFilter = ref<string>('ALL')
 const search = ref<string>((route.query.search as string) || '')
 
+watch(
+  () => route.query.search,
+  (val) => {
+    if (typeof val === 'string') {
+      search.value = val
+      statusFilter.value = 'ALL'
+    }
+  }
+)
+
 interface AdminOrder {
   id: string
   orderNumber: string
