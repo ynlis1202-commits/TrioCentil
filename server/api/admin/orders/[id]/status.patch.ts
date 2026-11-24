@@ -68,7 +68,9 @@ export default defineEventHandler(async (event) => {
         }
       }
     })
-  })
+  },
+  { maxWait: 15000, timeout: 25000 }
+  )
 
   return {
     data: serializeOrder(updated)

@@ -29,34 +29,37 @@ export default defineEventHandler(async (event) => {
   const passwordHash = await hashPassword(parsed.data.password)
   const normalizedPhone = normalizeWhatsappNumber(parsed.data.phone)
 
-  const user = await prisma.$transaction(async (tx) => {
-    const createdUser = await tx.user.create({
-      data: {
-        name: parsed.data.name,
-        email,
-        phone: normalizedPhone,
-        passwordHash,
-        role: UserRole.CUSTOMER
-      }
-    })
+  const user = await prisma.$transaction(
+    async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          name: parsed.data.name,
+          email,
+          phone: normalizedPhone,
+          passwordHash,
+          role: UserRole.CUSTOMER
+        }
+      })
 
-    await tx.customer.upsert({
-      where: { whatsapp: normalizedPhone },
-      update: {
-        userId: createdUser.id,
-        name: parsed.data.name,
-        email
-      },
-      create: {
-        userId: createdUser.id,
-        name: parsed.data.name,
-        whatsapp: normalizedPhone,
-        email
-      }
-    })
+      await tx.customer.upsert({
+        where: { whatsapp: normalizedPhone },
+        update: {
+          userId: createdUser.id,
+          name: parsed.data.name,
+          email
+        },
+        create: {
+          userId: createdUser.id,
+          name: parsed.data.name,
+          whatsapp: normalizedPhone,
+          email
+        }
+      })
 
-    return createdUser
-  })
+      return createdUser
+    },
+    { maxWait: 15000, timeout: 25000 }
+  )
 
   setAuthCookie(event, user.id, user.role)
   setResponseStatus(event, 201)

@@ -163,113 +163,139 @@ export default defineEventHandler(async (event) => {
   const orderNumber = generateOrderNumber()
   const config = useRuntimeConfig()
 
-  // Persist everything transactionally
-  const createdOrder = await prisma.$transaction(async (tx) => {
-    const customer = await tx.customer.upsert({
-      where: { whatsapp: normalizedWa },
-      update: {
-        name: input.customerName,
-        defaultAddress: input.deliveryAddress || undefined,
-        totalOrders: { increment: 1 },
-        totalSpent: { increment: totals.totalAmount },
-        ...(sessionUser && !sessionUser.role.includes('ADMIN') ? { userId: sessionUser.id } : {})
-      },
-      create: {
-        name: input.customerName,
-        whatsapp: normalizedWa,
-        email: sessionUser?.email || null,
-        userId: sessionUser?.role === 'CUSTOMER' ? sessionUser.id : null,
-        defaultAddress: input.deliveryAddress || null,
-        totalOrders: 1,
-        totalSpent: totals.totalAmount
-      }
-    })
-
-    // Decrement product stocks safely
-    for (const line of pricedLines) {
-      await tx.product.update({
-        where: { id: line.productId },
-        data: { stock: { decrement: line.quantity } }
-      })
-    }
-
-    if (promotion && totals.discountAmount > 0) {
-      await tx.promotion.update({
-        where: { id: promotion.id },
-        data: { usedCount: { increment: 1 } }
-      })
-    }
-
-    const qrisPayload =
-      input.paymentMethod === 'QRIS'
-        ? config.qrisStaticPayload || `QRIS:TRIOCENTIL:${orderNumber}:${totals.totalAmount}`
-        : null
-
-    const order = await tx.order.create({
-      data: {
-        orderNumber,
-        customerId: customer.id,
-        userId: sessionUser?.id || null,
-        customerName: input.customerName,
-        customerWhatsapp: normalizedWa,
-        orderType: input.orderType,
-        deliveryAddress: input.orderType === 'DELIVERY' ? input.deliveryAddress : null,
-        tableNumber: input.orderType === 'DINE_IN' ? input.tableNumber : null,
-        notes: input.notes || null,
-        subtotal: totals.subtotal,
-        deliveryFee: totals.deliveryFee,
-        discountAmount: totals.discountAmount,
-        totalAmount: totals.totalAmount,
-        promoCode: promotion && totals.discountAmount > 0 ? promotion.code : null,
-        promotionId: promotion && totals.discountAmount > 0 ? promotion.id : null,
-        status: OrderStatus.PENDING_CONFIRMATION,
-        items: {
-          create: pricedLines.map((line) => ({
-            productId: line.productId,
-            productName: line.productName,
-            unitPrice: line.unitPrice,
-            quantity: line.quantity,
-            spicyLevel: line.spicyLevel,
-            extraSambal: line.extraSambal,
-            selectedVariants: line.selectedVariants,
-            itemNotes: line.itemNotes,
-            lineTotal: line.lineTotal
-          }))
-        },
-        statusHistories: {
-          create: {
-            toStatus: OrderStatus.PENDING_CONFIRMATION,
-            note: 'Pesanan berhasil dibuat dan menunggu konfirmasi Warung Makan TrioCentil.'
-          }
-        },
-        payment: {
-          create: {
-            method: input.paymentMethod,
-            status: PaymentStatus.PENDING,
-            amount: totals.totalAmount,
-            qrisPayload
+  // Persist everything transactionally (extended timeout for cloud serverless DB)
+  let createdOrder
+  try {
+    createdOrder = await prisma.$transaction(
+      async (tx) => {
+        // Safely determine whether sessionUser can be linked without violating unique userId
+        let linkUserId: string | null = null
+        if (sessionUser?.role === 'CUSTOMER') {
+          const existingByUser = await tx.customer.findUnique({
+            where: { userId: sessionUser.id },
+            select: { id: true, whatsapp: true }
+          })
+          if (!existingByUser || existingByUser.whatsapp === normalizedWa) {
+            linkUserId = sessionUser.id
           }
         }
+
+        const customer = await tx.customer.upsert({
+          where: { whatsapp: normalizedWa },
+          update: {
+            name: input.customerName,
+            defaultAddress: input.deliveryAddress || undefined,
+            totalOrders: { increment: 1 },
+            totalSpent: { increment: totals.totalAmount },
+            ...(linkUserId ? { userId: linkUserId } : {})
+          },
+          create: {
+            name: input.customerName,
+            whatsapp: normalizedWa,
+            email: sessionUser?.role === 'CUSTOMER' ? sessionUser.email : null,
+            userId: linkUserId,
+            defaultAddress: input.deliveryAddress || null,
+            totalOrders: 1,
+            totalSpent: totals.totalAmount
+          }
+        })
+
+        // Decrement product stocks in parallel
+        await Promise.all(
+          pricedLines.map((line) =>
+            tx.product.update({
+              where: { id: line.productId },
+              data: { stock: { decrement: line.quantity } }
+            })
+          )
+        )
+
+        if (promotion && totals.discountAmount > 0) {
+          await tx.promotion.update({
+            where: { id: promotion.id },
+            data: { usedCount: { increment: 1 } }
+          })
+        }
+
+        const qrisPayload =
+          input.paymentMethod === 'QRIS'
+            ? config.qrisStaticPayload || `QRIS:TRIOCENTIL:${orderNumber}:${totals.totalAmount}`
+            : null
+
+        const order = await tx.order.create({
+          data: {
+            orderNumber,
+            customerId: customer.id,
+            userId: sessionUser?.id || null,
+            customerName: input.customerName,
+            customerWhatsapp: normalizedWa,
+            orderType: input.orderType,
+            deliveryAddress: input.orderType === 'DELIVERY' ? input.deliveryAddress : null,
+            tableNumber: input.orderType === 'DINE_IN' ? input.tableNumber : null,
+            notes: input.notes || null,
+            subtotal: totals.subtotal,
+            deliveryFee: totals.deliveryFee,
+            discountAmount: totals.discountAmount,
+            totalAmount: totals.totalAmount,
+            promoCode: promotion && totals.discountAmount > 0 ? promotion.code : null,
+            promotionId: promotion && totals.discountAmount > 0 ? promotion.id : null,
+            status: OrderStatus.PENDING_CONFIRMATION,
+            items: {
+              create: pricedLines.map((line) => ({
+                productId: line.productId,
+                productName: line.productName,
+                unitPrice: line.unitPrice,
+                quantity: line.quantity,
+                spicyLevel: line.spicyLevel,
+                extraSambal: line.extraSambal,
+                selectedVariants: line.selectedVariants,
+                itemNotes: line.itemNotes,
+                lineTotal: line.lineTotal
+              }))
+            },
+            statusHistories: {
+              create: {
+                toStatus: OrderStatus.PENDING_CONFIRMATION,
+                note: 'Pesanan berhasil dibuat dan menunggu konfirmasi Warung Makan TrioCentil.'
+              }
+            },
+            payment: {
+              create: {
+                method: input.paymentMethod,
+                status: PaymentStatus.PENDING,
+                amount: totals.totalAmount,
+                qrisPayload
+              }
+            }
+          },
+          include: {
+            items: true,
+            payment: true,
+            statusHistories: { orderBy: { createdAt: 'desc' } }
+          }
+        })
+
+        // Create internal notification for admin dashboard
+        await tx.notification.create({
+          data: {
+            type: NotificationType.NEW_ORDER,
+            title: `Pesanan Baru #${order.orderNumber}`,
+            message: `${input.customerName} (${ORDER_TYPE_LABELS[input.orderType]}) — ${formatRupiah(totals.totalAmount)}`,
+            orderId: order.id
+          }
+        })
+
+        return order
       },
-      include: {
-        items: true,
-        payment: true,
-        statusHistories: { orderBy: { createdAt: 'desc' } }
-      }
+      { maxWait: 15000, timeout: 25000 }
+    )
+  } catch (err: any) {
+    console.error('[POST /api/orders] Transaction failed:', err)
+    throw createError({
+      statusCode: 500,
+      statusMessage: 'Gagal menyimpan pesanan ke database. Silakan coba lagi sebentar.'
     })
-
-    // Create internal notification for admin dashboard
-    await tx.notification.create({
-      data: {
-        type: NotificationType.NEW_ORDER,
-        title: `Pesanan Baru #${order.orderNumber}`,
-        message: `${input.customerName} (${ORDER_TYPE_LABELS[input.orderType]}) — ${formatRupiah(totals.totalAmount)}`,
-        orderId: order.id
-      }
-    })
-
-    return order
-  })
+  }
 
   const trackingUrl = `${config.public.appUrl.replace(/\/$/, '')}/pesanan/${createdOrder.orderNumber}`
   const whatsappMessage = buildWhatsappOrderMessage({
