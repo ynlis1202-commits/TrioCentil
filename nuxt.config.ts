@@ -7,6 +7,16 @@ export default defineNuxtConfig({
     '@pinia/nuxt'
   ],
 
+  build: {
+    transpile: ['lucide-vue-next']
+  },
+
+  vite: {
+    ssr: {
+      noExternal: ['lucide-vue-next']
+    }
+  },
+
   css: ['~/assets/css/main.css'],
 
   colorMode: {
@@ -59,6 +69,9 @@ export default defineNuxtConfig({
   },
 
   nitro: {
+    externals: {
+      inline: ['lucide-vue-next']
+    },
     routeRules: {
       '/**': {
         headers: {
