@@ -1,8 +1,9 @@
-# Nuxt build & cache
+# Nuxt & Vercel build / cache
 .nuxt
 .output
 .nitro
 .cache
+.vercel
 dist
 
 # Dependencies
