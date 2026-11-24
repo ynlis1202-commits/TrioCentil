@@ -88,20 +88,24 @@ export async function getSessionUser(event: H3Event) {
   const payload = verifySessionToken(token)
   if (!payload) return null
 
-  const user = await prisma.user.findUnique({
-    where: { id: payload.userId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phone: true,
-      role: true,
-      isActive: true
-    }
-  })
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        isActive: true
+      }
+    })
 
-  if (!user || !user.isActive) return null
-  return user
+    if (!user || !user.isActive) return null
+    return user
+  } catch {
+    return null
+  }
 }
 
 export async function requireAuth(event: H3Event, allowedRoles?: UserRole[]) {

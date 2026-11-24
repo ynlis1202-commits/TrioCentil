@@ -22,10 +22,14 @@ export async function getStoreSettingsMap(): Promise<PublicStoreSettings> {
     store_maps_url: 'https://maps.google.com/?q=Jalan+Trans+Kalimantan+Bawas+PT+Palm+Agrosia+Lestari+Makmur'
   }
 
-  const rows = await prisma.setting.findMany()
   const map = { ...defaults } as Record<string, string>
-  for (const row of rows) {
-    map[row.key] = row.value
+  try {
+    const rows = await prisma.setting.findMany()
+    for (const row of rows) {
+      map[row.key] = row.value
+    }
+  } catch {
+    // Keep safe defaults if DB is temporarily unreachable
   }
 
   // Always prefer configured environment variable for official store WhatsApp if present

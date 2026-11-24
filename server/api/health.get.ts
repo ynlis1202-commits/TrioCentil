@@ -9,11 +9,13 @@ export default defineEventHandler(async (event) => {
       timestamp: new Date().toISOString(),
       timezone: 'Asia/Jakarta'
     }
-  } catch {
+  } catch (err: any) {
     setResponseStatus(event, 503)
     return {
       status: 'degraded',
       database: 'disconnected',
+      hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+      errorCode: err?.code || err?.name || 'DB_ERROR',
       message: 'Koneksi database TiDB Cloud belum tersedia.',
       timestamp: new Date().toISOString()
     }
