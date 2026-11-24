@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="16" fill="#F472B6"/>
+  <circle cx="32" cy="32" r="24" fill="#FFF5F8"/>
+  <!-- Sate skewer -->
+  <line x1="15" y1="45" x2="46" y2="14" stroke="#9D174D" stroke-width="3" stroke-linecap="round"/>
+  <ellipse cx="26" cy="34" rx="4.5" ry="3.2" transform="rotate(-45 26 34)" fill="#EC4899"/>
+  <ellipse cx="33" cy="27" rx="4.5" ry="3.2" transform="rotate(-45 33 27)" fill="#DB2777"/>
+  <ellipse cx="40" cy="20" rx="4.5" ry="3.2" transform="rotate(-45 40 20)" fill="#EC4899"/>
+  <!-- Rice bowl -->
+  <path d="M16 44C16 40.5 21 38 28 38C35 38 40 40.5 40 44H16Z" fill="#FFFFFF" stroke="#9D174D" stroke-width="1.8"/>
+  <path d="M15 44H41C40 49 35.5 52 28 52C20.5 52 16 49 15 44Z" fill="#9D174D"/>
+  <!-- Iced drink glass -->
+  <path d="M43 34H53L51.5 50H44.5L43 34Z" fill="#FBCFE8" stroke="#9D174D" stroke-width="1.8" stroke-linejoin="round"/>
+  <line x1="48" y1="29" x2="50" y2="34" stroke="#EC4899" stroke-width="2" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: triocentil-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: triocentil
+      POSTGRES_PASSWORD: triocentil123
+      POSTGRES_DB: warung_triocentil
+      TZ: Asia/Jakarta
+    ports:
+      - "5432:5432"
+    volumes:
+      - triocentil_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U triocentil -d warung_triocentil"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  triocentil_pgdata:

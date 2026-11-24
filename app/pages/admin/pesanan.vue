@@ -1,0 +1,384 @@
+<script setup lang="ts">
+import { Search, Eye, MessageCircle, X, RefreshCw } from 'lucide-vue-next'
+import type { OrderStatus, OrderType, PaymentMethod, PaymentStatus } from '~~/shared/types'
+import {
+  formatRupiah,
+  formatDateJakarta,
+  ORDER_STATUS_META,
+  ORDER_TYPE_LABELS,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_STATUS_META,
+  normalizeWhatsappNumber
+} from '~~/shared/utils/format'
+
+definePageMeta({
+  layout: 'admin',
+  middleware: ['admin']
+})
+useHead({ title: 'Kelola Pesanan - Admin' })
+
+const route = useRoute()
+const toast = useToast()
+
+const statusFilter = ref<string>('ALL')
+const search = ref<string>((route.query.search as string) || '')
+
+interface AdminOrder {
+  id: string
+  orderNumber: string
+  customerName: string
+  customerWhatsapp: string
+  orderType: OrderType
+  deliveryAddress: string | null
+  tableNumber: string | null
+  notes: string | null
+  subtotal: number
+  deliveryFee: number
+  discountAmount: number
+  totalAmount: number
+  status: OrderStatus
+  createdAt: string
+  items: Array<{
+    id: string
+    productName: string
+    unitPrice: number
+    quantity: number
+    spicyLevel: string | null
+    extraSambal: string | null
+    itemNotes: string | null
+    lineTotal: number
+  }>
+  payment: {
+    method: PaymentMethod
+    status: PaymentStatus
+    amount: number
+  } | null
+  statusHistories: Array<{
+    id: string
+    toStatus: OrderStatus
+    note: string | null
+    createdAt: string
+    changedBy?: { name: string } | null
+  }>
+}
+
+const { data: res, pending, refresh } = await useFetch<{ data: AdminOrder[] }>('/api/admin/orders', {
+  query: computed(() => ({
+    status: statusFilter.value,
+    search: search.value.trim() || undefined
+  }))
+})
+
+const orders = computed(() => res.value?.data || [])
+const selectedOrder = ref<AdminOrder | null>(null)
+const nextStatus = ref<OrderStatus>('CONFIRMED')
+const statusNote = ref('')
+const nextPaymentStatus = ref<PaymentStatus>('PENDING')
+const updating = ref(false)
+
+const allStatuses: OrderStatus[] = [
+  'PENDING_CONFIRMATION',
+  'CONFIRMED',
+  'COOKING',
+  'READY_FOR_PICKUP',
+  'OUT_FOR_DELIVERY',
+  'COMPLETED',
+  'CANCELLED'
+]
+
+function openDetail(order: AdminOrder) {
+  selectedOrder.value = order
+  nextStatus.value = order.status
+  statusNote.value = ''
+  nextPaymentStatus.value = order.payment?.status || 'PENDING'
+}
+
+async function updateOrderStatus() {
+  if (!selectedOrder.value) return
+  updating.value = true
+  try {
+    const updated = await $fetch<{ data: AdminOrder }>(`/api/admin/orders/${selectedOrder.value.id}/status`, {
+      method: 'PATCH',
+      body: {
+        status: nextStatus.value,
+        note: statusNote.value.trim() || undefined
+      }
+    })
+    selectedOrder.value = updated.data
+    statusNote.value = ''
+    toast.add({ title: 'Status pesanan berhasil diperbarui!', color: 'success' })
+    await refresh()
+  } catch (err: any) {
+    toast.add({
+      title: 'Gagal memperbarui status',
+      description: err?.data?.statusMessage || 'Terjadi kesalahan.',
+      color: 'error'
+    })
+  } finally {
+    updating.value = false
+  }
+}
+
+async function updatePayment() {
+  if (!selectedOrder.value) return
+  updating.value = true
+  try {
+    await $fetch(`/api/admin/orders/${selectedOrder.value.id}/payment`, {
+      method: 'PATCH',
+      body: { status: nextPaymentStatus.value }
+    })
+    if (selectedOrder.value.payment) {
+      selectedOrder.value.payment.status = nextPaymentStatus.value
+    }
+    toast.add({ title: 'Status pembayaran diperbarui!', color: 'success' })
+    await refresh()
+  } catch (err: any) {
+    toast.add({ title: 'Gagal memperbarui pembayaran', color: 'error' })
+  } finally {
+    updating.value = false
+  }
+}
+
+function customerWaLink(order: AdminOrder) {
+  const msg = `Halo Kak ${order.customerName}, ini dari Warung Makan TrioCentil terkait pesanan #${order.orderNumber} (Status: ${ORDER_STATUS_META[order.status].label}).`
+  return `https://wa.me/${normalizeWhatsappNumber(order.customerWhatsapp)}?text=${encodeURIComponent(msg)}`
+}
+</script>
+
+<template>
+  <div class="space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div>
+        <h2 class="font-display font-extrabold text-2xl text-[#292524]">Manajemen Pesanan</h2>
+        <p class="text-xs sm:text-sm text-stone-500">
+          Konfirmasi pesanan masuk, pantau proses masak, verifikasi pembayaran, dan perbarui status pengiriman.
+        </p>
+      </div>
+      <button
+        type="button"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-stone-200 text-xs font-bold text-stone-700 hover:bg-stone-50 cursor-pointer self-start"
+        @click="refresh()"
+      >
+        <RefreshCw class="w-3.5 h-3.5" :class="pending ? 'animate-spin' : ''" />
+        Refresh
+      </button>
+    </div>
+
+    <!-- Filter & Search -->
+    <div class="bg-white rounded-2xl border border-stone-200 p-4 space-y-3">
+      <div class="relative">
+        <Search class="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+        <input
+          v-model="search"
+          type="search"
+          placeholder="Cari nomor pesanan, nama pelanggan, atau nomor WhatsApp..."
+          class="w-full pl-10 pr-4 py-2 rounded-xl border border-stone-200 text-sm outline-none focus:border-[#EC4899]"
+        >
+      </div>
+      <div class="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          class="px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+          :class="statusFilter === 'ALL' ? 'bg-[#EC4899] text-white' : 'bg-stone-100 text-stone-600'"
+          @click="statusFilter = 'ALL'"
+        >
+          Semua
+        </button>
+        <button
+          v-for="st in allStatuses"
+          :key="st"
+          type="button"
+          class="px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+          :class="statusFilter === st ? 'bg-[#EC4899] text-white' : 'bg-stone-100 text-stone-600'"
+          @click="statusFilter = st"
+        >
+          {{ ORDER_STATUS_META[st].label }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Orders Table -->
+    <div class="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-2xs">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs sm:text-sm">
+          <thead class="bg-stone-50 text-stone-500 font-bold uppercase text-[11px]">
+            <tr>
+              <th class="px-5 py-3">Pesanan</th>
+              <th class="px-5 py-3">Pelanggan</th>
+              <th class="px-5 py-3">Layanan & Bayar</th>
+              <th class="px-5 py-3">Total</th>
+              <th class="px-5 py-3">Status</th>
+              <th class="px-5 py-3 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-stone-100">
+            <tr v-if="pending">
+              <td colspan="6" class="px-5 py-10 text-center text-stone-400">Memuat daftar pesanan...</td>
+            </tr>
+            <tr v-else-if="orders.length === 0">
+              <td colspan="6" class="px-5 py-10 text-center text-stone-400">Tidak ada pesanan yang cocok.</td>
+            </tr>
+            <tr v-for="ord in orders" :key="ord.id" class="hover:bg-pink-50/30">
+              <td class="px-5 py-3.5">
+                <p class="font-mono font-bold text-[#9D174D]">{{ ord.orderNumber }}</p>
+                <p class="text-[11px] text-stone-400">{{ formatDateJakarta(ord.createdAt) }}</p>
+              </td>
+              <td class="px-5 py-3.5">
+                <p class="font-bold text-[#292524]">{{ ord.customerName }}</p>
+                <p class="text-xs text-stone-500">{{ ord.customerWhatsapp }}</p>
+              </td>
+              <td class="px-5 py-3.5">
+                <p class="font-semibold text-stone-700">{{ ORDER_TYPE_LABELS[ord.orderType] }}</p>
+                <div v-if="ord.payment" class="flex items-center gap-1.5 mt-0.5">
+                  <span class="text-[11px] text-stone-500">{{ PAYMENT_METHOD_LABELS[ord.payment.method] }}</span>
+                  <span
+                    class="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                    :class="[
+                      PAYMENT_STATUS_META[ord.payment.status].bgClass,
+                      PAYMENT_STATUS_META[ord.payment.status].textClass
+                    ]"
+                  >
+                    {{ PAYMENT_STATUS_META[ord.payment.status].label }}
+                  </span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 font-extrabold text-[#292524]">{{ formatRupiah(ord.totalAmount) }}</td>
+              <td class="px-5 py-3.5">
+                <OrderStatusBadge :status="ord.status" />
+              </td>
+              <td class="px-5 py-3.5 text-right whitespace-nowrap">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#EC4899] text-white text-xs font-bold hover:bg-[#DB2777] cursor-pointer"
+                  @click="openDetail(ord)"
+                >
+                  <Eye class="w-3.5 h-3.5" />
+                  Proses
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Order Detail & Status Management Modal -->
+    <div v-if="selectedOrder" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
+      <div class="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div class="px-6 py-4 border-b border-stone-100 flex items-center justify-between sticky top-0 bg-white z-10">
+          <div>
+            <h3 class="font-mono font-extrabold text-lg text-[#9D174D]">{{ selectedOrder.orderNumber }}</h3>
+            <p class="text-xs text-stone-500">{{ formatDateJakarta(selectedOrder.createdAt) }}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <a
+              :href="customerWaLink(selectedOrder)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700"
+            >
+              <MessageCircle class="w-3.5 h-3.5" />
+              Chat WA
+            </a>
+            <button type="button" class="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 cursor-pointer" @click="selectedOrder = null">
+              <X class="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        <div class="p-6 space-y-6">
+          <!-- Update Status & Payment Controls -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="p-4 rounded-2xl bg-[#FFF5F8] border border-pink-200 space-y-3">
+              <label class="block text-xs font-bold text-[#9D174D]">Ubah Status Pesanan</label>
+              <select v-model="nextStatus" class="w-full px-3 py-2 rounded-xl border border-pink-200 bg-white text-sm font-semibold">
+                <option v-for="st in allStatuses" :key="st" :value="st">
+                  {{ ORDER_STATUS_META[st].label }}
+                </option>
+              </select>
+              <input
+                v-model="statusNote"
+                type="text"
+                placeholder="Catatan status (opsional)"
+                class="w-full px-3 py-2 rounded-xl border border-pink-200 bg-white text-xs"
+              >
+              <button
+                type="button"
+                :disabled="updating"
+                class="w-full py-2 rounded-xl bg-[#EC4899] hover:bg-[#DB2777] text-white text-xs font-bold cursor-pointer"
+                @click="updateOrderStatus"
+              >
+                Simpan Status Pesanan
+              </button>
+            </div>
+
+            <div v-if="selectedOrder.payment" class="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-3">
+              <label class="block text-xs font-bold text-stone-700">
+                Status Pembayaran ({{ PAYMENT_METHOD_LABELS[selectedOrder.payment.method] }})
+              </label>
+              <select v-model="nextPaymentStatus" class="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white text-sm font-semibold">
+                <option value="PENDING">Menunggu Pembayaran</option>
+                <option value="PAID">Lunas</option>
+                <option value="FAILED">Gagal</option>
+                <option value="REFUNDED">Dikembalikan</option>
+              </select>
+              <p class="text-xs text-stone-500">
+                Nominal: <strong class="text-[#292524]">{{ formatRupiah(selectedOrder.payment.amount) }}</strong>
+              </p>
+              <button
+                type="button"
+                :disabled="updating"
+                class="w-full py-2 rounded-xl bg-[#9D174D] hover:bg-[#831843] text-white text-xs font-bold cursor-pointer"
+                @click="updatePayment"
+              >
+                Simpan Status Pembayaran
+              </button>
+            </div>
+          </div>
+
+          <!-- Customer Info -->
+          <div class="p-4 rounded-2xl border border-stone-200 text-xs space-y-1.5">
+            <p><strong>Pelanggan:</strong> {{ selectedOrder.customerName }} ({{ selectedOrder.customerWhatsapp }})</p>
+            <p><strong>Pengambilan:</strong> {{ ORDER_TYPE_LABELS[selectedOrder.orderType] }}</p>
+            <p v-if="selectedOrder.deliveryAddress"><strong>Alamat:</strong> {{ selectedOrder.deliveryAddress }}</p>
+            <p v-if="selectedOrder.tableNumber"><strong>No. Meja:</strong> {{ selectedOrder.tableNumber }}</p>
+            <p v-if="selectedOrder.notes"><strong>Catatan:</strong> {{ selectedOrder.notes }}</p>
+          </div>
+
+          <!-- Items -->
+          <div class="space-y-2">
+            <h4 class="font-bold text-sm text-[#292524]">Daftar Produk</h4>
+            <div class="divide-y divide-stone-100 border border-stone-200 rounded-2xl px-4">
+              <div v-for="item in selectedOrder.items" :key="item.id" class="py-3 flex justify-between gap-3 text-xs">
+                <div>
+                  <p class="font-bold text-stone-800">{{ item.quantity }}x {{ item.productName }}</p>
+                  <p v-if="item.spicyLevel" class="text-stone-500">Pedas: {{ item.spicyLevel }}</p>
+                  <p v-if="item.extraSambal" class="text-stone-500">Sambal: {{ item.extraSambal }}</p>
+                  <p v-if="item.itemNotes" class="italic text-stone-400">"{{ item.itemNotes }}"</p>
+                </div>
+                <span class="font-bold text-[#9D174D]">{{ formatRupiah(item.lineTotal) }}</span>
+              </div>
+            </div>
+            <div class="text-right text-sm font-extrabold text-[#292524] pt-1">
+              Total: {{ formatRupiah(selectedOrder.totalAmount) }}
+            </div>
+          </div>
+
+          <!-- Status History -->
+          <div class="space-y-2">
+            <h4 class="font-bold text-sm text-[#292524]">Riwayat Perubahan Status</h4>
+            <div class="space-y-2 text-xs">
+              <div v-for="h in selectedOrder.statusHistories" :key="h.id" class="p-3 rounded-xl bg-stone-50 flex justify-between gap-2">
+                <div>
+                  <p class="font-bold text-stone-800">{{ ORDER_STATUS_META[h.toStatus]?.label }}</p>
+                  <p v-if="h.note" class="text-stone-500">{{ h.note }}</p>
+                </div>
+                <span class="text-stone-400 whitespace-nowrap">{{ formatDateJakarta(h.createdAt) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

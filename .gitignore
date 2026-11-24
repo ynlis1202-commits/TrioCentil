@@ -1,0 +1,23 @@
+# Nuxt build & cache
+.nuxt
+.output
+.nitro
+.cache
+dist
+
+# Dependencies
+node_modules
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Uploads (keep folder, ignore user uploaded files)
+public/uploads/*
+!public/uploads/.gitkeep
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
