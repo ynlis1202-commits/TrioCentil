@@ -135,7 +135,8 @@ export const updateOrderStatusSchema = z.object({
 
 export const updatePaymentStatusSchema = z.object({
   status: z.enum(['PENDING', 'PAID', 'FAILED', 'REFUNDED']),
-  referenceCode: z.string().trim().max(100).optional().nullable()
+  referenceCode: z.string().trim().max(100).optional().nullable(),
+  cashierPin: z.string().trim().min(4).max(8).optional().nullable()
 })
 
 export function slugify(text: string): string {

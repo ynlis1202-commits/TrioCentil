@@ -517,6 +517,7 @@ async function main() {
     { key: 'bank_account_holder', value: 'Warung Makan TrioCentil', group: 'payment', description: 'Nama pemilik rekening' },
     { key: 'qris_enabled', value: 'true', group: 'payment', description: 'Aktifkan pembayaran QRIS' },
     { key: 'qris_merchant_name', value: 'WARUNG MAKAN TRIOCENTIL', group: 'payment', description: 'Nama merchant pada QRIS' },
+    { key: 'cashier_payment_pin', value: '123456', group: 'security', description: 'PIN Kasir untuk membuka pembayaran Tunai (Bayar di Tempat)' },
     { key: 'store_maps_url', value: 'https://maps.google.com/?q=Jalan+Trans+Kalimantan+Bawas+PT+Palm+Agrosia+Lestari+Makmur', group: 'contact', description: 'Tautan Google Maps lokasi warung' }
   ]
 

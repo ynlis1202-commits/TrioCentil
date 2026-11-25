@@ -2,6 +2,7 @@ import { NotificationType } from '@prisma/client'
 import { prisma } from '../../../../utils/prisma'
 import { requireAdmin } from '../../../../utils/auth'
 import { updatePaymentStatusSchema } from '../../../../utils/validation'
+import { verifyCashierPin } from '../../../../utils/cashierPin'
 
 export default defineEventHandler(async (event) => {
   const admin = await requireAdmin(event)
@@ -23,6 +24,17 @@ export default defineEventHandler(async (event) => {
   })
   if (!order || !order.payment) {
     throw createError({ statusCode: 404, statusMessage: 'Data pembayaran pesanan tidak ditemukan.' })
+  }
+
+  // Wajib verifikasi PIN Kasir untuk pembayaran Tunai (Bayar di Tempat)
+  if (order.payment.method === 'CASH') {
+    const validPin = await verifyCashierPin(parsed.data.cashierPin)
+    if (!validPin) {
+      throw createError({
+        statusCode: 403,
+        statusMessage: 'PIN Kasir diperlukan dan harus valid untuk mengubah pembayaran Tunai (Bayar di Tempat).'
+      })
+    }
   }
 
   const updated = await prisma.payment.update({

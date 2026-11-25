@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Eye, MessageCircle, X, RefreshCw, Image as ImageIcon, Download } from 'lucide-vue-next'
+import { Search, Eye, MessageCircle, X, RefreshCw, Image as ImageIcon, Download, Lock, Unlock, ShieldCheck } from 'lucide-vue-next'
 import type { OrderStatus, OrderType, PaymentMethod, PaymentStatus } from '~~/shared/types'
 import {
   formatRupiah,
@@ -89,6 +89,13 @@ const nextPaymentStatus = ref<PaymentStatus>('PENDING')
 const updating = ref(false)
 const proofModalUrl = ref<string | null>(null)
 
+// Cashier PIN lock state for CASH (Bayar di Tempat) payment section
+const cashPaymentUnlocked = ref(false)
+const cashierPinInput = ref('')
+const verifiedCashierPin = ref('')
+const verifyingPin = ref(false)
+const pinError = ref('')
+
 const allStatuses: OrderStatus[] = [
   'PENDING_CONFIRMATION',
   'CONFIRMED',
@@ -104,6 +111,53 @@ function openDetail(order: AdminOrder) {
   nextStatus.value = order.status
   statusNote.value = ''
   nextPaymentStatus.value = order.payment?.status || 'PENDING'
+  // Always lock CASH payment section until cashier enters PIN
+  cashPaymentUnlocked.value = order.payment?.method !== 'CASH'
+  cashierPinInput.value = ''
+  verifiedCashierPin.value = ''
+  pinError.value = ''
+}
+
+function closeDetail() {
+  selectedOrder.value = null
+  cashPaymentUnlocked.value = false
+  cashierPinInput.value = ''
+  verifiedCashierPin.value = ''
+  pinError.value = ''
+}
+
+async function unlockCashPayment() {
+  pinError.value = ''
+  if (cashierPinInput.value.trim().length < 4) {
+    pinError.value = 'Masukkan PIN Kasir minimal 4 digit.'
+    return
+  }
+  verifyingPin.value = true
+  try {
+    await $fetch('/api/admin/orders/verify-cashier-pin', {
+      method: 'POST',
+      body: { pin: cashierPinInput.value.trim() }
+    })
+    verifiedCashierPin.value = cashierPinInput.value.trim()
+    cashPaymentUnlocked.value = true
+    cashierPinInput.value = ''
+    toast.add({
+      title: 'Pembayaran Tunai Dibuka',
+      description: 'PIN Kasir terverifikasi.',
+      color: 'success'
+    })
+  } catch (err: any) {
+    pinError.value = err?.data?.statusMessage || 'PIN Kasir salah.'
+  } finally {
+    verifyingPin.value = false
+  }
+}
+
+function lockCashPayment() {
+  cashPaymentUnlocked.value = false
+  verifiedCashierPin.value = ''
+  cashierPinInput.value = ''
+  pinError.value = ''
 }
 
 async function updateOrderStatus() {
@@ -134,11 +188,21 @@ async function updateOrderStatus() {
 
 async function updatePayment() {
   if (!selectedOrder.value) return
+  if (selectedOrder.value.payment?.method === 'CASH' && !verifiedCashierPin.value) {
+    pinError.value = 'Silakan verifikasi PIN Kasir terlebih dahulu.'
+    cashPaymentUnlocked.value = false
+    return
+  }
   updating.value = true
   try {
     await $fetch(`/api/admin/orders/${selectedOrder.value.id}/payment`, {
       method: 'PATCH',
-      body: { status: nextPaymentStatus.value }
+      body: {
+        status: nextPaymentStatus.value,
+        ...(selectedOrder.value.payment?.method === 'CASH'
+          ? { cashierPin: verifiedCashierPin.value }
+          : {})
+      }
     })
     if (selectedOrder.value.payment) {
       selectedOrder.value.payment.status = nextPaymentStatus.value
@@ -146,7 +210,11 @@ async function updatePayment() {
     toast.add({ title: 'Status pembayaran diperbarui!', color: 'success' })
     await refresh()
   } catch (err: any) {
-    toast.add({ title: 'Gagal memperbarui pembayaran', color: 'error' })
+    toast.add({
+      title: 'Gagal memperbarui pembayaran',
+      description: err?.data?.statusMessage || 'Pastikan PIN Kasir valid.',
+      color: 'error'
+    })
   } finally {
     updating.value = false
   }
@@ -300,7 +368,7 @@ function customerWaLink(order: AdminOrder) {
               <MessageCircle class="w-3.5 h-3.5" />
               Chat WA
             </a>
-            <button type="button" class="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 cursor-pointer" @click="selectedOrder = null">
+            <button type="button" class="p-1.5 rounded-lg text-stone-400 hover:bg-stone-100 cursor-pointer" @click="closeDetail">
               <X class="w-5 h-5" />
             </button>
           </div>
@@ -333,26 +401,83 @@ function customerWaLink(order: AdminOrder) {
             </div>
 
             <div v-if="selectedOrder.payment" class="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-3">
-              <label class="block text-xs font-bold text-stone-700">
-                Status Pembayaran ({{ PAYMENT_METHOD_LABELS[selectedOrder.payment.method] }})
-              </label>
-              <select v-model="nextPaymentStatus" class="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white text-sm font-semibold">
-                <option value="PENDING">Menunggu Pembayaran</option>
-                <option value="PAID">Lunas</option>
-                <option value="FAILED">Gagal</option>
-                <option value="REFUNDED">Dikembalikan</option>
-              </select>
-              <p class="text-xs text-stone-500">
-                Nominal: <strong class="text-[#292524]">{{ formatRupiah(selectedOrder.payment.amount) }}</strong>
-              </p>
-              <button
-                type="button"
-                :disabled="updating"
-                class="w-full py-2 rounded-xl bg-[#9D174D] hover:bg-[#831843] text-white text-xs font-bold cursor-pointer"
-                @click="updatePayment"
+              <div class="flex items-center justify-between gap-2">
+                <label class="block text-xs font-bold text-stone-700">
+                  Status Pembayaran ({{ PAYMENT_METHOD_LABELS[selectedOrder.payment.method] }})
+                </label>
+                <button
+                  v-if="selectedOrder.payment.method === 'CASH' && cashPaymentUnlocked"
+                  type="button"
+                  class="inline-flex items-center gap-1 text-[11px] font-bold text-stone-500 hover:text-[#9D174D] cursor-pointer"
+                  @click="lockCashPayment"
+                >
+                  <Lock class="w-3 h-3" />
+                  Kunci
+                </button>
+              </div>
+
+              <!-- PIN Lock Screen for CASH (Bayar di Tempat) -->
+              <form
+                v-if="selectedOrder.payment.method === 'CASH' && !cashPaymentUnlocked"
+                class="p-3.5 rounded-xl bg-white border border-pink-200 space-y-2.5"
+                @submit.prevent="unlockCashPayment"
               >
-                Simpan Status Pembayaran
-              </button>
+                <div class="flex items-center gap-2 text-xs font-bold text-[#9D174D]">
+                  <Lock class="w-4 h-4 text-[#EC4899] shrink-0" />
+                  <span>Terkunci — PIN Kasir Diperlukan</span>
+                </div>
+                <p class="text-[11px] text-stone-500 leading-relaxed">
+                  Masukkan PIN Kasir untuk membuka pengaturan pembayaran <strong>Bayar di Tempat (Tunai)</strong>.
+                </p>
+                <input
+                  v-model="cashierPinInput"
+                  type="password"
+                  inputmode="numeric"
+                  maxlength="8"
+                  autocomplete="off"
+                  placeholder="Masukkan PIN Kasir (contoh: 6 digit)"
+                  class="w-full px-3 py-2 rounded-xl border border-pink-200 focus:border-[#EC4899] outline-none text-sm tracking-widest font-mono bg-[#FFF5F8]"
+                >
+                <p v-if="pinError" class="text-[11px] font-semibold text-[#E11D48]">
+                  {{ pinError }}
+                </p>
+                <button
+                  type="submit"
+                  :disabled="verifyingPin || cashierPinInput.trim().length < 4"
+                  class="w-full inline-flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#EC4899] hover:bg-[#DB2777] disabled:opacity-50 text-white text-xs font-bold cursor-pointer"
+                >
+                  <Unlock class="w-3.5 h-3.5" />
+                  <span>{{ verifyingPin ? 'Memverifikasi...' : 'Buka Pembayaran Kasir' }}</span>
+                </button>
+              </form>
+
+              <!-- Unlocked Payment Controls -->
+              <template v-else>
+                <div
+                  v-if="selectedOrder.payment.method === 'CASH'"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold"
+                >
+                  <ShieldCheck class="w-3.5 h-3.5" />
+                  <span>PIN Kasir Terverifikasi</span>
+                </div>
+                <select v-model="nextPaymentStatus" class="w-full px-3 py-2 rounded-xl border border-stone-200 bg-white text-sm font-semibold">
+                  <option value="PENDING">Menunggu Pembayaran</option>
+                  <option value="PAID">Lunas</option>
+                  <option value="FAILED">Gagal</option>
+                  <option value="REFUNDED">Dikembalikan</option>
+                </select>
+                <p class="text-xs text-stone-500">
+                  Nominal: <strong class="text-[#292524]">{{ formatRupiah(selectedOrder.payment.amount) }}</strong>
+                </p>
+                <button
+                  type="button"
+                  :disabled="updating"
+                  class="w-full py-2 rounded-xl bg-[#9D174D] hover:bg-[#831843] text-white text-xs font-bold cursor-pointer"
+                  @click="updatePayment"
+                >
+                  Simpan Status Pembayaran
+                </button>
+              </template>
             </div>
           </div>
 
