@@ -9,7 +9,10 @@ import {
   ShieldCheck,
   ArrowLeft,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  X,
+  Image as ImageIcon
 } from 'lucide-vue-next'
 import type { OrderType, PaymentMethod } from '~~/shared/types'
 import { formatRupiah } from '~~/shared/utils/format'
@@ -42,6 +45,51 @@ watch(
 
 const submitting = ref(false)
 const submitError = ref('')
+const proofFile = ref<File | null>(null)
+const proofPreviewUrl = ref<string | null>(null)
+const proofSenderNote = ref('')
+
+function handleCheckoutProofFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (file.size > 10 * 1024 * 1024) {
+    toast.add({ title: 'Ukuran foto maksimal 10 MB', color: 'error' })
+    return
+  }
+  proofFile.value = file
+  proofPreviewUrl.value = URL.createObjectURL(file)
+}
+
+async function compressCheckoutProof(file: File): Promise<Blob> {
+  if (!import.meta.client) return file
+  return new Promise((resolve) => {
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      const maxDim = 1200
+      let { width, height } = img
+      if (width > maxDim || height > maxDim) {
+        const ratio = Math.min(maxDim / width, maxDim / height)
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return resolve(file)
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', 0.82)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(file)
+    }
+    img.src = objectUrl
+  })
+}
 
 const baseDeliveryFee = computed(() => Number(storefront.settings.delivery_fee || 10000))
 const freeDeliveryMin = computed(() => Number(storefront.settings.free_delivery_min || 75000))
@@ -142,10 +190,28 @@ async function submitOrder() {
       }
     })
 
+    // Jika pelanggan sudah melampirkan bukti pembayaran saat checkout, unggah otomatis sekarang
+    if (proofFile.value && (form.paymentMethod === 'BANK_TRANSFER' || form.paymentMethod === 'QRIS')) {
+      try {
+        const compressed = await compressCheckoutProof(proofFile.value)
+        const fd = new FormData()
+        fd.append('file', compressed, 'bukti-pembayaran.jpg')
+        if (proofSenderNote.value.trim()) {
+          fd.append('senderNote', proofSenderNote.value.trim())
+        }
+        await $fetch(`/api/orders/${res.data.order.orderNumber}/payment-proof`, {
+          method: 'POST',
+          body: fd
+        })
+      } catch {
+        // Tetap lanjut ke halaman pesanan agar user bisa unggah ulang jika gagal
+      }
+    }
+
     cart.clearCart()
     toast.add({
       title: 'Pesanan Berhasil Dibuat!',
-      description: `Nomor pesanan ${res.data.order.orderNumber} siap dikonfirmasi via WhatsApp.`,
+      description: `Nomor pesanan ${res.data.order.orderNumber} berhasil dicatat.`,
       color: 'success'
     })
 
@@ -336,6 +402,48 @@ async function submitOrder() {
                 <p class="text-xs text-stone-500 mt-0.5">{{ pay.desc }}</p>
               </div>
             </button>
+          </div>
+
+          <!-- Optional Payment Proof Upload directly at Checkout for Bank Transfer / QRIS -->
+          <div
+            v-if="form.paymentMethod === 'BANK_TRANSFER' || form.paymentMethod === 'QRIS'"
+            class="mt-4 p-4 rounded-2xl bg-[#FFF5F8] border border-pink-200 space-y-3"
+          >
+            <div class="flex items-center gap-2 text-xs font-bold text-[#9D174D]">
+              <ImageIcon class="w-4 h-4 text-[#EC4899]" />
+              <span>Unggah Bukti Pembayaran (Opsional — bisa juga setelah checkout)</span>
+            </div>
+
+            <div v-if="form.paymentMethod === 'BANK_TRANSFER'" class="p-3 rounded-xl bg-white border border-pink-100 text-xs space-y-0.5">
+              <p class="font-bold text-[#9D174D]">{{ storefront.settings.bank_name }}</p>
+              <p class="font-mono font-extrabold text-sm text-[#292524]">{{ storefront.settings.bank_account_number }}</p>
+              <p class="text-stone-500">a.n. {{ storefront.settings.bank_account_holder }}</p>
+            </div>
+
+            <input
+              v-model="proofSenderNote"
+              type="text"
+              maxlength="100"
+              placeholder="Nama pengirim / catatan transfer (opsional)"
+              class="w-full px-3 py-2 rounded-xl border border-pink-200 bg-white focus:border-[#EC4899] outline-none text-xs"
+            >
+
+            <div v-if="proofPreviewUrl" class="relative rounded-xl overflow-hidden border border-pink-200 bg-white max-w-xs">
+              <img :src="proofPreviewUrl" alt="Preview Bukti Bayar" class="w-full max-h-44 object-contain">
+              <button
+                type="button"
+                class="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white hover:bg-black cursor-pointer"
+                @click="proofFile = null; proofPreviewUrl = null"
+              >
+                <X class="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <label class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-pink-50 border border-pink-200 text-[#9D174D] text-xs font-bold cursor-pointer transition-colors">
+              <Upload class="w-4 h-4 text-[#EC4899]" />
+              <span>{{ proofFile ? 'Ganti Foto Bukti Pembayaran' : 'Pilih Foto Bukti Pembayaran (JPG/PNG)' }}</span>
+              <input type="file" accept="image/png,image/jpeg,image/webp" class="hidden" @change="handleCheckoutProofFile">
+            </label>
           </div>
         </div>
       </div>

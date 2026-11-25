@@ -380,6 +380,115 @@ async function copyAccountNumber() {
         <OrderStatusTimeline :status="order.status" :order-type="order.orderType" />
       </section>
 
+      <!-- PROMINENT UPLOAD BUKTI PEMBAYARAN CARD (visible right above the fold!) -->
+      <section
+        v-if="order.payment && order.status !== 'CANCELLED' && order.payment.status !== 'PAID'"
+        class="rounded-3xl bg-white border-2 border-pink-200 p-6 sm:p-7 shadow-sm space-y-4"
+      >
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 class="font-display font-extrabold text-base sm:text-lg text-[#9D174D] flex items-center gap-2">
+              <Upload class="w-5 h-5 text-[#EC4899]" />
+              Unggah Bukti Pembayaran ({{ PAYMENT_METHOD_LABELS[order.payment.method] }})
+            </h2>
+            <p class="text-xs text-stone-500 mt-0.5">
+              Total tagihan: <strong class="text-[#292524]">{{ formatRupiah(order.totalAmount) }}</strong> — Unggah foto bukti transfer/QRIS agar kasir segera memvalidasi & menerbitkan Struk Lunas.
+            </p>
+          </div>
+          <span
+            v-if="order.payment.proofUrl"
+            class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold self-start"
+          >
+            <CheckCircle2 class="w-3.5 h-3.5" />
+            Bukti Sudah Terkirim
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+          <!-- Uploaded / Preview Thumbnail -->
+          <div v-if="previewProofUrl || order.payment.proofUrl" class="md:col-span-5">
+            <div class="relative rounded-2xl overflow-hidden border border-pink-200 bg-[#FFF5F8]">
+              <button
+                type="button"
+                class="block w-full cursor-zoom-in"
+                @click="!previewProofUrl && (proofZoomOpen = true)"
+              >
+                <img
+                  :src="previewProofUrl || order.payment.proofUrl || ''"
+                  alt="Bukti Pembayaran"
+                  class="w-full max-h-52 object-contain"
+                >
+              </button>
+              <button
+                v-if="previewProofUrl"
+                type="button"
+                class="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white hover:bg-black cursor-pointer"
+                @click="previewProofFile = null; previewProofUrl = null"
+              >
+                <X class="w-4 h-4" />
+              </button>
+            </div>
+            <p v-if="order.payment.referenceCode && !previewProofUrl" class="text-[11px] text-emerald-800 mt-1.5">
+              <strong>Catatan/Pengirim:</strong> {{ order.payment.referenceCode }}
+            </p>
+          </div>
+
+          <!-- Upload Form Controls -->
+          <div :class="(previewProofUrl || order.payment.proofUrl) ? 'md:col-span-7' : 'md:col-span-12'" class="space-y-3">
+            <div
+              v-if="order.payment.method === 'BANK_TRANSFER' && paymentInfo"
+              class="p-3.5 rounded-2xl bg-[#FFF5F8] border border-pink-200 flex flex-wrap items-center justify-between gap-2 text-xs"
+            >
+              <div>
+                <p class="font-bold text-[#9D174D]">{{ paymentInfo.bankName }} • a.n. {{ paymentInfo.bankAccountHolder }}</p>
+                <code class="text-sm font-extrabold text-[#292524]">{{ paymentInfo.bankAccountNumber }}</code>
+              </div>
+              <button
+                type="button"
+                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-pink-200 text-[#9D174D] font-bold cursor-pointer"
+                @click="copyAccountNumber"
+              >
+                <Check v-if="copiedRek" class="w-3.5 h-3.5 text-emerald-600" />
+                <Copy v-else class="w-3.5 h-3.5" />
+                <span>{{ copiedRek ? 'Tersalin' : 'Salin No. Rek' }}</span>
+              </button>
+            </div>
+
+            <input
+              v-model="senderNote"
+              type="text"
+              maxlength="100"
+              placeholder="Nama pengirim / catatan transfer (opsional)"
+              class="w-full px-3.5 py-2.5 rounded-xl border border-stone-200 focus:border-[#EC4899] outline-none text-xs sm:text-sm"
+            >
+
+            <div class="flex flex-wrap gap-2.5">
+              <label class="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-[#FFF5F8] hover:bg-pink-100 border border-pink-200 text-[#9D174D] text-xs sm:text-sm font-bold cursor-pointer transition-colors">
+                <Upload class="w-4 h-4 text-[#EC4899]" />
+                <span>{{ order.payment.proofUrl ? 'Ganti Foto Bukti Bayar' : 'Pilih Foto Bukti Pembayaran' }}</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  class="hidden"
+                  @change="handleProofFileChange"
+                >
+              </label>
+
+              <button
+                v-if="previewProofFile"
+                type="button"
+                :disabled="uploadingProof"
+                class="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-[#EC4899] hover:bg-[#DB2777] disabled:opacity-60 text-white text-xs sm:text-sm font-bold cursor-pointer shadow-sm transition-colors"
+                @click="submitPaymentProof"
+              >
+                <Loader2 v-if="uploadingProof" class="w-4 h-4 animate-spin" />
+                <span>{{ uploadingProof ? 'Mengirim Bukti...' : 'Kirim Bukti Pembayaran' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- WhatsApp Order Integration Card -->
       <section class="rounded-3xl bg-gradient-to-br from-emerald-600 to-emerald-700 text-white p-6 sm:p-8 shadow-md space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -528,94 +637,26 @@ async function copyAccountNumber() {
               </p>
             </div>
 
-            <!-- Upload & Preview Bukti Pembayaran dari User -->
+            <!-- Uploaded Proof Summary inside Payment Box (when PAID) -->
             <div
-              v-if="order.status !== 'CANCELLED'"
-              class="pt-3 border-t border-pink-100 space-y-3"
+              v-if="order.payment.proofUrl && order.payment.status === 'PAID'"
+              class="pt-3 border-t border-pink-100 space-y-2"
             >
-              <div class="flex items-center justify-between gap-2">
-                <p class="text-xs font-bold text-[#9D174D] flex items-center gap-1.5">
-                  <ImageIcon class="w-4 h-4 text-[#EC4899]" />
-                  Bukti Pembayaran
-                </p>
-                <span
-                  v-if="order.payment.proofUrl"
-                  class="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700"
-                >
-                  <CheckCircle2 class="w-3.5 h-3.5" />
-                  Sudah Diunggah
-                </span>
-              </div>
-
-              <!-- Uploaded Proof Preview -->
-              <div
-                v-if="order.payment.proofUrl"
-                class="p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-2"
+              <p class="text-xs font-bold text-[#9D174D] flex items-center gap-1.5">
+                <ImageIcon class="w-4 h-4 text-[#EC4899]" />
+                Bukti Pembayaran Terverifikasi
+              </p>
+              <button
+                type="button"
+                class="block w-full rounded-xl overflow-hidden border border-emerald-200 bg-white cursor-zoom-in"
+                @click="proofZoomOpen = true"
               >
-                <button
-                  type="button"
-                  class="block w-full rounded-xl overflow-hidden border border-emerald-200 bg-white cursor-zoom-in"
-                  @click="proofZoomOpen = true"
+                <img
+                  :src="order.payment.proofUrl"
+                  alt="Bukti Pembayaran"
+                  class="w-full max-h-48 object-contain bg-stone-50"
                 >
-                  <img
-                    :src="order.payment.proofUrl"
-                    alt="Bukti Pembayaran"
-                    class="w-full max-h-56 object-contain bg-stone-50"
-                  >
-                </button>
-                <p v-if="order.payment.referenceCode" class="text-[11px] text-emerald-800">
-                  <strong>Catatan/Pengirim:</strong> {{ order.payment.referenceCode }}
-                </p>
-                <p class="text-[11px] text-stone-500">
-                  Klik gambar untuk memperbesar.
-                </p>
-              </div>
-
-              <!-- Upload Form (available while payment is not PAID) -->
-              <div v-if="order.payment.status !== 'PAID'" class="space-y-2.5">
-                <input
-                  v-model="senderNote"
-                  type="text"
-                  maxlength="100"
-                  placeholder="Nama pengirim / catatan transfer (opsional)"
-                  class="w-full px-3 py-2 rounded-xl border border-stone-200 focus:border-[#EC4899] outline-none text-xs"
-                >
-
-                <div v-if="previewProofUrl" class="relative rounded-xl overflow-hidden border border-pink-200 bg-stone-50">
-                  <img :src="previewProofUrl" alt="Preview Bukti" class="w-full max-h-48 object-contain">
-                  <button
-                    type="button"
-                    class="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white hover:bg-black cursor-pointer"
-                    @click="previewProofFile = null; previewProofUrl = null"
-                  >
-                    <X class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div class="flex flex-wrap gap-2">
-                  <label class="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-[#FFF5F8] hover:bg-pink-100 border border-pink-200 text-[#9D174D] text-xs font-bold cursor-pointer transition-colors">
-                    <Upload class="w-3.5 h-3.5" />
-                    <span>{{ order.payment.proofUrl ? 'Ganti Foto Bukti' : 'Pilih Foto Bukti' }}</span>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp"
-                      class="hidden"
-                      @change="handleProofFileChange"
-                    >
-                  </label>
-
-                  <button
-                    v-if="previewProofFile"
-                    type="button"
-                    :disabled="uploadingProof"
-                    class="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#EC4899] hover:bg-[#DB2777] disabled:opacity-60 text-white text-xs font-bold cursor-pointer transition-colors"
-                    @click="submitPaymentProof"
-                  >
-                    <Loader2 v-if="uploadingProof" class="w-3.5 h-3.5 animate-spin" />
-                    <span>{{ uploadingProof ? 'Mengirim...' : 'Kirim Bukti Bayar' }}</span>
-                  </button>
-                </div>
-              </div>
+              </button>
             </div>
           </section>
 
