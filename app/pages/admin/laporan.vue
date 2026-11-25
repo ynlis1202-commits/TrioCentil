@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Download, Calendar, BarChart3 } from 'lucide-vue-next'
+import { FileDown, Calendar, BarChart3, Loader2 } from 'lucide-vue-next'
 import {
   formatRupiah,
+  formatDateJakarta,
   ORDER_TYPE_LABELS,
   PAYMENT_METHOD_LABELS
 } from '~~/shared/utils/format'
@@ -56,25 +57,150 @@ const { data: res, pending } = await useFetch<ReportResponse>('/api/admin/report
   }))
 })
 
+const storefront = useStorefrontStore()
+const toast = useToast()
+const exportingPdf = ref(false)
+
 const report = computed(() => res.value?.data)
 const maxDailyRev = computed(() =>
   Math.max(1, ...(report.value?.dailySeries || []).map((d) => d.revenue))
 )
 
-function exportCsv() {
+async function exportPdf() {
   if (!report.value || !import.meta.client) return
-  const rows = [
-    ['Tanggal', 'Jumlah Pesanan', 'Pendapatan (IDR)'],
-    ...report.value.dailySeries.map((d) => [d.date, String(d.orders), String(d.revenue)])
-  ]
-  const csv = rows.map((r) => r.join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `laporan-triocentil-${startDate.value}_sd_${endDate.value}.csv`
-  link.click()
-  URL.revokeObjectURL(url)
+  exportingPdf.value = true
+  try {
+    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable')
+    ])
+
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const r = report.value
+
+    // Header Banner (Brand Soft Berry Rose)
+    doc.setFillColor(157, 23, 77) // #9D174D
+    doc.rect(0, 0, 210, 34, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.text('WARUNG MAKAN TRIOCENTIL', 14, 14)
+
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9.5)
+    doc.text('LAPORAN PENJUALAN RESMI', 14, 21)
+    doc.setFontSize(8.5)
+    doc.text(storefront.settings.store_address || 'Jalan Trans Kalimantan, Bawas, PT Palm Agrosia Lestari Makmur', 14, 27)
+
+    doc.setFontSize(8.5)
+    doc.text(`Periode: ${startDate.value} s/d ${endDate.value}`, 196, 15, { align: 'right' })
+    doc.text(`Dicetak: ${formatDateJakarta(new Date())}`, 196, 21, { align: 'right' })
+
+    // 1. Ringkasan Penjualan
+    doc.setTextColor(41, 37, 36)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('1. Ringkasan Penjualan', 14, 44)
+
+    autoTable(doc, {
+      startY: 47,
+      head: [['Metrik', 'Nilai']],
+      body: [
+        ['Total Pendapatan', formatRupiah(r.summary.totalRevenue)],
+        ['Total Pesanan Valid', `${r.summary.totalOrders} pesanan (${r.summary.completedOrders} selesai)`],
+        ['Rata-rata Nilai / Pesanan', formatRupiah(r.summary.averageOrderValue)],
+        ['Total Diskon Promo', formatRupiah(r.summary.totalDiscount)],
+        ['Pesanan Dibatalkan', `${r.summary.cancelledOrders} pesanan`]
+      ],
+      headStyles: { fillColor: [236, 72, 153], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [255, 245, 248] },
+      styles: { fontSize: 9, cellPadding: 2.8 }
+    })
+
+    // 2. Pendapatan Harian
+    const afterSummaryY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : 95
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('2. Rincian Pendapatan Harian', 14, afterSummaryY)
+
+    autoTable(doc, {
+      startY: afterSummaryY + 3,
+      head: [['Tanggal', 'Jumlah Pesanan', 'Pendapatan (IDR)']],
+      body:
+        r.dailySeries.length > 0
+          ? r.dailySeries.map((d) => [d.date, `${d.orders} pesanan`, formatRupiah(d.revenue)])
+          : [['-', '0 pesanan', 'Rp 0']],
+      headStyles: { fillColor: [157, 23, 77], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [255, 245, 248] },
+      styles: { fontSize: 8.5, cellPadding: 2.5 }
+    })
+
+    // 3. Metode Pembayaran & Jenis Layanan
+    const afterDailyY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : 150
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('3. Rincian Metode Pembayaran & Jenis Layanan', 14, afterDailyY)
+
+    autoTable(doc, {
+      startY: afterDailyY + 3,
+      head: [['Kategori', 'Keterangan', 'Jumlah', 'Total (IDR)']],
+      body: [
+        ...r.paymentBreakdown.map((p) => [
+          'Metode Bayar',
+          PAYMENT_METHOD_LABELS[p.method] || p.method,
+          `${p.count} transaksi`,
+          formatRupiah(p.total)
+        ]),
+        ...r.orderTypeBreakdown.map((o) => [
+          'Jenis Layanan',
+          ORDER_TYPE_LABELS[o.orderType] || o.orderType,
+          `${o.count} pesanan`,
+          formatRupiah(o.total)
+        ])
+      ],
+      headStyles: { fillColor: [236, 72, 153], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [255, 245, 248] },
+      styles: { fontSize: 8.5, cellPadding: 2.5 }
+    })
+
+    // 4. Menu Terlaris
+    const afterBreakY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 8 : 205
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(11)
+    doc.text('4. Menu Terlaris Periode Ini', 14, afterBreakY)
+
+    autoTable(doc, {
+      startY: afterBreakY + 3,
+      head: [['No', 'Nama Menu', 'Jumlah Terjual', 'Total Penjualan (IDR)']],
+      body:
+        r.topProducts.length > 0
+          ? r.topProducts.map((p, idx) => [
+              String(idx + 1),
+              p.productName,
+              `${p.quantity} porsi`,
+              formatRupiah(p.revenue)
+            ])
+          : [['-', 'Belum ada penjualan', '0 porsi', 'Rp 0']],
+      headStyles: { fillColor: [157, 23, 77], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [255, 245, 248] },
+      styles: { fontSize: 8.5, cellPadding: 2.5 }
+    })
+
+    doc.save(`laporan-penjualan-triocentil-${startDate.value}_sd_${endDate.value}.pdf`)
+    toast.add({
+      title: 'Laporan PDF Berhasil Diunduh!',
+      color: 'success'
+    })
+  } catch (err) {
+    console.error('Export PDF failed:', err)
+    toast.add({
+      title: 'Gagal mengekspor PDF',
+      description: 'Silakan coba lagi sebentar.',
+      color: 'error'
+    })
+  } finally {
+    exportingPdf.value = false
+  }
 }
 </script>
 
@@ -89,11 +215,13 @@ function exportCsv() {
       </div>
       <button
         type="button"
-        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#9D174D] hover:bg-[#831843] text-white text-xs font-bold cursor-pointer self-start"
-        @click="exportCsv"
+        :disabled="exportingPdf || !report"
+        class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#9D174D] hover:bg-[#831843] disabled:opacity-50 text-white text-xs font-bold cursor-pointer self-start"
+        @click="exportPdf"
       >
-        <Download class="w-4 h-4" />
-        Ekspor CSV
+        <Loader2 v-if="exportingPdf" class="w-4 h-4 animate-spin" />
+        <FileDown v-else class="w-4 h-4" />
+        <span>{{ exportingPdf ? 'Membuat PDF...' : 'Ekspor PDF' }}</span>
       </button>
     </div>
 
