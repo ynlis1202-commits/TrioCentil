@@ -310,7 +310,7 @@ model Payment {
   status        PaymentStatus @default(PENDING)
   amount        Decimal       @db.Decimal(12, 2)
   referenceCode String?       @map("reference_code") @db.VarChar(100)
-  proofUrl      String?       @map("proof_url") @db.Text
+  proofUrl      String?       @map("proof_url") @db.LongText
   qrisPayload   String?       @map("qris_payload") @db.Text
   paidAt        DateTime?     @map("paid_at")
   metadata      Json?

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Eye, MessageCircle, X, RefreshCw } from 'lucide-vue-next'
+import { Search, Eye, MessageCircle, X, RefreshCw, Image as ImageIcon, Download } from 'lucide-vue-next'
 import type { OrderStatus, OrderType, PaymentMethod, PaymentStatus } from '~~/shared/types'
 import {
   formatRupiah,
@@ -62,6 +62,8 @@ interface AdminOrder {
     method: PaymentMethod
     status: PaymentStatus
     amount: number
+    referenceCode: string | null
+    proofUrl: string | null
   } | null
   statusHistories: Array<{
     id: string
@@ -85,6 +87,7 @@ const nextStatus = ref<OrderStatus>('CONFIRMED')
 const statusNote = ref('')
 const nextPaymentStatus = ref<PaymentStatus>('PENDING')
 const updating = ref(false)
+const proofModalUrl = ref<string | null>(null)
 
 const allStatuses: OrderStatus[] = [
   'PENDING_CONFIRMATION',
@@ -239,7 +242,7 @@ function customerWaLink(order: AdminOrder) {
               </td>
               <td class="px-5 py-3.5">
                 <p class="font-semibold text-stone-700">{{ ORDER_TYPE_LABELS[ord.orderType] }}</p>
-                <div v-if="ord.payment" class="flex items-center gap-1.5 mt-0.5">
+                <div v-if="ord.payment" class="flex flex-wrap items-center gap-1.5 mt-0.5">
                   <span class="text-[11px] text-stone-500">{{ PAYMENT_METHOD_LABELS[ord.payment.method] }}</span>
                   <span
                     class="px-1.5 py-0.5 rounded text-[10px] font-bold"
@@ -249,6 +252,13 @@ function customerWaLink(order: AdminOrder) {
                     ]"
                   >
                     {{ PAYMENT_STATUS_META[ord.payment.status].label }}
+                  </span>
+                  <span
+                    v-if="ord.payment.proofUrl"
+                    class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-pink-100 text-[#9D174D] text-[10px] font-bold"
+                  >
+                    <ImageIcon class="w-3 h-3" />
+                    Bukti
                   </span>
                 </div>
               </td>
@@ -346,6 +356,49 @@ function customerWaLink(order: AdminOrder) {
             </div>
           </div>
 
+          <!-- Bukti Pembayaran dari Pelanggan -->
+          <div v-if="selectedOrder.payment" class="p-4 rounded-2xl border border-pink-200 bg-[#FFF5F8]/60 space-y-3">
+            <div class="flex items-center justify-between gap-2">
+              <h4 class="font-bold text-xs text-[#9D174D] flex items-center gap-1.5">
+                <ImageIcon class="w-4 h-4 text-[#EC4899]" />
+                Bukti Pembayaran Pelanggan
+              </h4>
+              <a
+                v-if="selectedOrder.payment.proofUrl"
+                :href="selectedOrder.payment.proofUrl"
+                :download="`bukti-${selectedOrder.orderNumber}.jpg`"
+                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-pink-200 text-[#9D174D] text-[11px] font-bold hover:bg-pink-50"
+              >
+                <Download class="w-3.5 h-3.5" />
+                Unduh
+              </a>
+            </div>
+
+            <div v-if="selectedOrder.payment.proofUrl" class="flex flex-col sm:flex-row items-start gap-4">
+              <button
+                type="button"
+                class="w-full sm:w-44 h-36 rounded-xl overflow-hidden border border-pink-200 bg-white shrink-0 cursor-zoom-in"
+                @click="proofModalUrl = selectedOrder.payment.proofUrl"
+              >
+                <img
+                  :src="selectedOrder.payment.proofUrl"
+                  :alt="`Bukti pembayaran ${selectedOrder.orderNumber}`"
+                  class="w-full h-full object-cover"
+                >
+              </button>
+              <div class="text-xs space-y-1.5 text-stone-600">
+                <p class="font-bold text-emerald-700">Bukti pembayaran sudah diunggah oleh pelanggan.</p>
+                <p v-if="selectedOrder.payment.referenceCode">
+                  <strong>Catatan / Pengirim:</strong> {{ selectedOrder.payment.referenceCode }}
+                </p>
+                <p>Klik foto di samping untuk melihat ukuran penuh sebelum mengubah status pembayaran menjadi <strong>Lunas</strong>.</p>
+              </div>
+            </div>
+            <p v-else class="text-xs text-stone-500">
+              Pelanggan belum mengunggah foto bukti pembayaran.
+            </p>
+          </div>
+
           <!-- Customer Info -->
           <div class="p-4 rounded-2xl border border-stone-200 text-xs space-y-1.5">
             <p><strong>Pelanggan:</strong> {{ selectedOrder.customerName }} ({{ selectedOrder.customerWhatsapp }})</p>
@@ -387,6 +440,25 @@ function customerWaLink(order: AdminOrder) {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zoom Lightbox for Payment Proof -->
+    <div
+      v-if="proofModalUrl"
+      class="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4"
+      @click.self="proofModalUrl = null"
+    >
+      <div class="relative max-w-2xl w-full bg-white rounded-3xl overflow-hidden shadow-2xl">
+        <div class="px-5 py-3 border-b border-stone-100 flex items-center justify-between">
+          <span class="font-bold text-sm text-[#292524]">Pratinjau Bukti Pembayaran</span>
+          <button type="button" class="p-1.5 rounded-lg hover:bg-stone-100 cursor-pointer" @click="proofModalUrl = null">
+            <X class="w-5 h-5" />
+          </button>
+        </div>
+        <div class="p-4 bg-stone-50 flex justify-center">
+          <img :src="proofModalUrl" alt="Bukti Pembayaran" class="max-h-[78vh] object-contain rounded-xl">
         </div>
       </div>
     </div>

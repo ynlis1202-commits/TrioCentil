@@ -10,7 +10,12 @@ import {
   Info,
   CreditCard,
   QrCode,
-  ArrowLeft
+  ArrowLeft,
+  Upload,
+  CheckCircle2,
+  Image as ImageIcon,
+  Loader2,
+  X
 } from 'lucide-vue-next'
 import type { OrderStatus, OrderType, PaymentMethod, PaymentStatus } from '~~/shared/types'
 import {
@@ -63,6 +68,8 @@ interface OrderDetailResponse {
         method: PaymentMethod
         status: PaymentStatus
         amount: number
+        referenceCode: string | null
+        proofUrl: string | null
         qrisPayload: string | null
       } | null
       statusHistories: Array<{
@@ -96,6 +103,100 @@ const whatsappUrl = computed(() => res.value?.data.whatsappUrl || '')
 const paymentInfo = computed(() => res.value?.data.paymentInfo)
 const copiedRek = ref(false)
 const refreshing = ref(false)
+const uploadingProof = ref(false)
+const senderNote = ref('')
+const previewProofFile = ref<File | null>(null)
+const previewProofUrl = ref<string | null>(null)
+const proofZoomOpen = ref(false)
+
+async function compressImageIfNeeded(file: File): Promise<Blob> {
+  if (!import.meta.client) return file
+  return new Promise((resolve) => {
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      const maxDim = 1200
+      let { width, height } = img
+      if (width > maxDim || height > maxDim) {
+        const ratio = Math.min(maxDim / width, maxDim / height)
+        width = Math.round(width * ratio)
+        height = Math.round(height * ratio)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(file)
+        return
+      }
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(
+        (blob) => resolve(blob || file),
+        'image/jpeg',
+        0.82
+      )
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve(file)
+    }
+    img.src = objectUrl
+  })
+}
+
+function handleProofFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  if (file.size > 10 * 1024 * 1024) {
+    toast.add({
+      title: 'File terlalu besar',
+      description: 'Maksimal ukuran gambar 10 MB.',
+      color: 'error'
+    })
+    return
+  }
+  previewProofFile.value = file
+  previewProofUrl.value = URL.createObjectURL(file)
+}
+
+async function submitPaymentProof() {
+  if (!previewProofFile.value || !order.value) return
+  uploadingProof.value = true
+  try {
+    const compressed = await compressImageIfNeeded(previewProofFile.value)
+    const fd = new FormData()
+    fd.append('file', compressed, 'bukti-pembayaran.jpg')
+    if (senderNote.value.trim()) {
+      fd.append('senderNote', senderNote.value.trim())
+    }
+
+    await $fetch(`/api/orders/${order.value.orderNumber}/payment-proof`, {
+      method: 'POST',
+      body: fd
+    })
+
+    previewProofFile.value = null
+    previewProofUrl.value = null
+    senderNote.value = ''
+    await refresh()
+    toast.add({
+      title: 'Bukti Pembayaran Terkirim!',
+      description: 'Kasir Warung Makan TrioCentil akan segera memverifikasi pembayaran Anda.',
+      color: 'success'
+    })
+  } catch (err: any) {
+    toast.add({
+      title: 'Gagal Mengunggah Bukti',
+      description: err?.data?.statusMessage || 'Pastikan format gambar JPG/PNG/WEBP.',
+      color: 'error'
+    })
+  } finally {
+    uploadingProof.value = false
+  }
+}
 
 async function manualRefresh() {
   refreshing.value = true
@@ -340,8 +441,98 @@ async function copyAccountNumber() {
                 Nominal: <strong>{{ formatRupiah(order.totalAmount) }}</strong>
               </p>
               <p class="text-stone-500">
-                Scan kode QRIS di kasir atau minta kode QRIS resmi melalui WhatsApp toko.
+                Scan kode QRIS di kasir atau unggah bukti bayar QRIS di bawah ini.
               </p>
+            </div>
+
+            <!-- Upload & Preview Bukti Pembayaran dari User -->
+            <div
+              v-if="order.status !== 'CANCELLED'"
+              class="pt-3 border-t border-pink-100 space-y-3"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <p class="text-xs font-bold text-[#9D174D] flex items-center gap-1.5">
+                  <ImageIcon class="w-4 h-4 text-[#EC4899]" />
+                  Bukti Pembayaran
+                </p>
+                <span
+                  v-if="order.payment.proofUrl"
+                  class="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700"
+                >
+                  <CheckCircle2 class="w-3.5 h-3.5" />
+                  Sudah Diunggah
+                </span>
+              </div>
+
+              <!-- Uploaded Proof Preview -->
+              <div
+                v-if="order.payment.proofUrl"
+                class="p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-2"
+              >
+                <button
+                  type="button"
+                  class="block w-full rounded-xl overflow-hidden border border-emerald-200 bg-white cursor-zoom-in"
+                  @click="proofZoomOpen = true"
+                >
+                  <img
+                    :src="order.payment.proofUrl"
+                    alt="Bukti Pembayaran"
+                    class="w-full max-h-56 object-contain bg-stone-50"
+                  >
+                </button>
+                <p v-if="order.payment.referenceCode" class="text-[11px] text-emerald-800">
+                  <strong>Catatan/Pengirim:</strong> {{ order.payment.referenceCode }}
+                </p>
+                <p class="text-[11px] text-stone-500">
+                  Klik gambar untuk memperbesar.
+                </p>
+              </div>
+
+              <!-- Upload Form (available while payment is not PAID) -->
+              <div v-if="order.payment.status !== 'PAID'" class="space-y-2.5">
+                <input
+                  v-model="senderNote"
+                  type="text"
+                  maxlength="100"
+                  placeholder="Nama pengirim / catatan transfer (opsional)"
+                  class="w-full px-3 py-2 rounded-xl border border-stone-200 focus:border-[#EC4899] outline-none text-xs"
+                >
+
+                <div v-if="previewProofUrl" class="relative rounded-xl overflow-hidden border border-pink-200 bg-stone-50">
+                  <img :src="previewProofUrl" alt="Preview Bukti" class="w-full max-h-48 object-contain">
+                  <button
+                    type="button"
+                    class="absolute top-2 right-2 p-1 rounded-full bg-black/60 text-white hover:bg-black cursor-pointer"
+                    @click="previewProofFile = null; previewProofUrl = null"
+                  >
+                    <X class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                  <label class="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-[#FFF5F8] hover:bg-pink-100 border border-pink-200 text-[#9D174D] text-xs font-bold cursor-pointer transition-colors">
+                    <Upload class="w-3.5 h-3.5" />
+                    <span>{{ order.payment.proofUrl ? 'Ganti Foto Bukti' : 'Pilih Foto Bukti' }}</span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      class="hidden"
+                      @change="handleProofFileChange"
+                    >
+                  </label>
+
+                  <button
+                    v-if="previewProofFile"
+                    type="button"
+                    :disabled="uploadingProof"
+                    class="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#EC4899] hover:bg-[#DB2777] disabled:opacity-60 text-white text-xs font-bold cursor-pointer transition-colors"
+                    @click="submitPaymentProof"
+                  >
+                    <Loader2 v-if="uploadingProof" class="w-3.5 h-3.5 animate-spin" />
+                    <span>{{ uploadingProof ? 'Mengirim...' : 'Kirim Bukti Bayar' }}</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -381,6 +572,25 @@ async function copyAccountNumber() {
               </li>
             </ol>
           </section>
+        </div>
+      </div>
+
+      <!-- Fullscreen Lightbox for Uploaded Proof -->
+      <div
+        v-if="proofZoomOpen && order.payment?.proofUrl"
+        class="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+        @click.self="proofZoomOpen = false"
+      >
+        <div class="relative max-w-2xl w-full bg-white rounded-3xl overflow-hidden shadow-2xl">
+          <div class="px-5 py-3 border-b border-stone-100 flex items-center justify-between">
+            <span class="font-bold text-sm text-[#292524]">Bukti Pembayaran #{{ order.orderNumber }}</span>
+            <button type="button" class="p-1.5 rounded-lg hover:bg-stone-100 cursor-pointer" @click="proofZoomOpen = false">
+              <X class="w-5 h-5" />
+            </button>
+          </div>
+          <div class="p-4 bg-stone-50 flex justify-center">
+            <img :src="order.payment.proofUrl" alt="Bukti Pembayaran" class="max-h-[75vh] object-contain rounded-xl">
+          </div>
         </div>
       </div>
     </template>
