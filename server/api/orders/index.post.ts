@@ -297,7 +297,16 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const trackingUrl = `${config.public.appUrl.replace(/\/$/, '')}/pesanan/${createdOrder.orderNumber}`
+  const reqOrigin = getRequestURL(event).origin
+  const configuredUrl = (config.public.appUrl || '').replace(/\/$/, '')
+  const publicBaseUrl =
+    !reqOrigin.includes('localhost') && !reqOrigin.includes('127.0.0.1')
+      ? reqOrigin
+      : configuredUrl && !configuredUrl.includes('localhost')
+        ? configuredUrl
+        : 'https://trio-centil.vercel.app'
+
+  const trackingUrl = `${publicBaseUrl}/pesanan/${createdOrder.orderNumber}`
   const whatsappMessage = buildWhatsappOrderMessage({
     orderNumber: createdOrder.orderNumber,
     customerName: createdOrder.customerName,

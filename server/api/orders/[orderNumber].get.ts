@@ -26,7 +26,16 @@ export default defineEventHandler(async (event) => {
 
   const settings = await getStoreSettingsMap()
   const config = useRuntimeConfig()
-  const trackingUrl = `${config.public.appUrl.replace(/\/$/, '')}/pesanan/${order.orderNumber}`
+  const reqOrigin = getRequestURL(event).origin
+  const configuredUrl = (config.public.appUrl || '').replace(/\/$/, '')
+  const publicBaseUrl =
+    !reqOrigin.includes('localhost') && !reqOrigin.includes('127.0.0.1')
+      ? reqOrigin
+      : configuredUrl && !configuredUrl.includes('localhost')
+        ? configuredUrl
+        : 'https://trio-centil.vercel.app'
+
+  const trackingUrl = `${publicBaseUrl}/pesanan/${order.orderNumber}`
 
   const whatsappMessage = buildWhatsappOrderMessage({
     orderNumber: order.orderNumber,
