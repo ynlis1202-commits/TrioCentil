@@ -67,15 +67,26 @@ const maxDailyRev = computed(() =>
 )
 
 async function exportPdf() {
-  if (!report.value || !import.meta.client) return
+  if (!import.meta.client) return
+  if (!report.value) {
+    toast.add({
+      title: 'Data laporan sedang dimuat',
+      description: 'Tunggu sebentar hingga data selesai tampil lalu klik Ekspor PDF lagi.',
+      color: 'warning'
+    })
+    return
+  }
   exportingPdf.value = true
   try {
-    const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    const [jspdfMod, autoTableMod] = await Promise.all([
       import('jspdf'),
       import('jspdf-autotable')
     ])
 
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const JsPDFCtor = (jspdfMod.jsPDF || (jspdfMod.default as any)?.jsPDF || jspdfMod.default) as any
+    const autoTableFn = (autoTableMod.autoTable || autoTableMod.default) as any
+
+    const doc = new JsPDFCtor({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const r = report.value
 
     // Header Banner (Brand Soft Berry Rose)
@@ -102,7 +113,7 @@ async function exportPdf() {
     doc.setFontSize(11)
     doc.text('1. Ringkasan Penjualan', 14, 44)
 
-    autoTable(doc, {
+    autoTableFn(doc, {
       startY: 47,
       head: [['Metrik', 'Nilai']],
       body: [
@@ -123,7 +134,7 @@ async function exportPdf() {
     doc.setFontSize(11)
     doc.text('2. Rincian Pendapatan Harian', 14, afterSummaryY)
 
-    autoTable(doc, {
+    autoTableFn(doc, {
       startY: afterSummaryY + 3,
       head: [['Tanggal', 'Jumlah Pesanan', 'Pendapatan (IDR)']],
       body:
@@ -141,7 +152,7 @@ async function exportPdf() {
     doc.setFontSize(11)
     doc.text('3. Rincian Metode Pembayaran & Jenis Layanan', 14, afterDailyY)
 
-    autoTable(doc, {
+    autoTableFn(doc, {
       startY: afterDailyY + 3,
       head: [['Kategori', 'Keterangan', 'Jumlah', 'Total (IDR)']],
       body: [
@@ -169,7 +180,7 @@ async function exportPdf() {
     doc.setFontSize(11)
     doc.text('4. Menu Terlaris Periode Ini', 14, afterBreakY)
 
-    autoTable(doc, {
+    autoTableFn(doc, {
       startY: afterBreakY + 3,
       head: [['No', 'Nama Menu', 'Jumlah Terjual', 'Total Penjualan (IDR)']],
       body:
@@ -215,7 +226,7 @@ async function exportPdf() {
       </div>
       <button
         type="button"
-        :disabled="exportingPdf || !report"
+        :disabled="exportingPdf"
         class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#9D174D] hover:bg-[#831843] disabled:opacity-50 text-white text-xs font-bold cursor-pointer self-start"
         @click="exportPdf"
       >
