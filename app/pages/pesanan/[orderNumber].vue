@@ -15,7 +15,11 @@ import {
   CheckCircle2,
   Image as ImageIcon,
   Loader2,
-  X
+  X,
+  Receipt,
+  Printer,
+  ShieldCheck,
+  AlertCircle
 } from 'lucide-vue-next'
 import type { OrderStatus, OrderType, PaymentMethod, PaymentStatus } from '~~/shared/types'
 import {
@@ -71,6 +75,7 @@ interface OrderDetailResponse {
         referenceCode: string | null
         proofUrl: string | null
         qrisPayload: string | null
+        paidAt: string | null
       } | null
       statusHistories: Array<{
         id: string
@@ -108,6 +113,7 @@ const senderNote = ref('')
 const previewProofFile = ref<File | null>(null)
 const previewProofUrl = ref<string | null>(null)
 const proofZoomOpen = ref(false)
+const receiptOpen = ref(false)
 
 async function compressImageIfNeeded(file: File): Promise<Blob> {
   if (!import.meta.client) return file
@@ -231,15 +237,27 @@ async function copyAccountNumber() {
         <span>Kembali ke Daftar Pesanan</span>
       </NuxtLink>
 
-      <button
-        type="button"
-        :disabled="refreshing"
-        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-pink-200 text-xs font-bold text-[#9D174D] hover:bg-pink-50 cursor-pointer"
-        @click="manualRefresh"
-      >
-        <RefreshCw class="w-3.5 h-3.5" :class="refreshing ? 'animate-spin' : ''" />
-        <span>Perbarui Status</span>
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          v-if="order"
+          type="button"
+          class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-[#EC4899] hover:bg-[#DB2777] text-white text-xs font-bold cursor-pointer shadow-xs"
+          @click="receiptOpen = true"
+        >
+          <Receipt class="w-3.5 h-3.5" />
+          <span>Lihat Struk</span>
+        </button>
+
+        <button
+          type="button"
+          :disabled="refreshing"
+          class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-pink-200 text-xs font-bold text-[#9D174D] hover:bg-pink-50 cursor-pointer"
+          @click="manualRefresh"
+        >
+          <RefreshCw class="w-3.5 h-3.5" :class="refreshing ? 'animate-spin' : ''" />
+          <span>Perbarui Status</span>
+        </button>
+      </div>
     </div>
 
     <div v-if="pending" class="h-80 rounded-3xl bg-pink-100/50 animate-pulse" />
@@ -273,6 +291,71 @@ async function copyAccountNumber() {
           Langkah berikutnya: Klik tombol <strong>Buka WhatsApp Toko</strong> di bawah agar tim Warung Makan TrioCentil segera memverifikasi dan mengonfirmasi pesanan Anda.
         </p>
       </div>
+
+      <!-- Official Payment Validation & E-Receipt Banner -->
+      <section
+        v-if="order.payment?.status === 'PAID'"
+        class="rounded-3xl bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs"
+      >
+        <div class="flex items-start gap-3.5">
+          <div class="w-11 h-11 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+            <ShieldCheck class="w-6 h-6" />
+          </div>
+          <div>
+            <span class="inline-block px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold uppercase tracking-wider">
+              Pembayaran Tervalidasi • Lunas
+            </span>
+            <h2 class="font-display font-extrabold text-base sm:text-lg text-emerald-950 mt-1">
+              Struk Pembayaran Resmi Tersedia
+            </h2>
+            <p class="text-xs text-emerald-800 mt-0.5">
+              Pembayaran sebesar <strong>{{ formatRupiah(order.payment.amount) }}</strong> ({{ PAYMENT_METHOD_LABELS[order.payment.method] }}) telah diverifikasi kasir
+              <span v-if="order.payment.paidAt">pada {{ formatDateJakarta(order.payment.paidAt) }}</span>.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          class="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-sm cursor-pointer transition-colors"
+          @click="receiptOpen = true"
+        >
+          <Printer class="w-4 h-4" />
+          <span>Buka & Cetak Struk</span>
+        </button>
+      </section>
+
+      <section
+        v-else-if="order.payment?.status === 'PENDING' && order.payment?.proofUrl"
+        class="rounded-2xl bg-amber-50 border border-amber-200 p-4 flex items-start gap-3 text-amber-900"
+      >
+        <Clock class="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+        <div class="text-xs sm:text-sm">
+          <p class="font-bold">Bukti Pembayaran Diterima — Menunggu Validasi Kasir</p>
+          <p class="text-amber-800 mt-0.5">
+            Setelah kasir Warung Makan TrioCentil memverifikasi bukti pembayaran Anda, <strong>Struk Lunas Resmi</strong> akan otomatis muncul di halaman ini.
+          </p>
+        </div>
+      </section>
+
+      <section
+        v-else-if="order.payment?.status === 'REFUNDED' || order.payment?.status === 'FAILED'"
+        class="rounded-2xl bg-rose-50 border border-rose-200 p-4 flex items-start gap-3 text-rose-900"
+      >
+        <AlertCircle class="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+        <div class="text-xs sm:text-sm">
+          <p class="font-bold">
+            Status Pembayaran: {{ PAYMENT_STATUS_META[order.payment.status].label }}
+          </p>
+          <p class="text-rose-800 mt-0.5">
+            {{
+              order.payment.status === 'REFUNDED'
+                ? 'Dana pembayaran untuk pesanan ini telah dikembalikan oleh kasir Warung Makan TrioCentil.'
+                : 'Pembayaran belum berhasil diverifikasi. Silakan unggah ulang bukti pembayaran yang valid atau hubungi WhatsApp kami.'
+            }}
+          </p>
+        </div>
+      </section>
 
       <!-- Order Header & Timeline Card -->
       <section class="bg-white rounded-3xl border border-pink-100 p-6 sm:p-8 shadow-xs space-y-6">
@@ -593,6 +676,8 @@ async function copyAccountNumber() {
           </div>
         </div>
       </div>
+      <!-- Official Digital Receipt Modal -->
+      <OrderReceiptModal :open="receiptOpen" :order="order" @close="receiptOpen = false" />
     </template>
   </div>
 </template>

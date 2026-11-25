@@ -62,3 +62,24 @@ h1, h2, h3, h4, .font-display {
 .pb-safe-nav {
   padding-bottom: calc(4.75rem + env(safe-area-inset-bottom, 0px));
 }
+
+/* Clean Receipt Print Styling */
+@media print {
+  body > *:not(.receipt-modal-root) {
+    display: none !important;
+  }
+  .receipt-modal-root {
+    position: static !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+  .receipt-modal-root > div {
+    box-shadow: none !important;
+    max-width: 100% !important;
+    border-radius: 0 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

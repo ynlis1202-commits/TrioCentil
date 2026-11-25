@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Eye, MessageCircle, X, RefreshCw, Image as ImageIcon, Download, Lock, Unlock, ShieldCheck } from 'lucide-vue-next'
+import { Search, Eye, MessageCircle, X, RefreshCw, Image as ImageIcon, Download, Lock, Unlock, ShieldCheck, Printer } from 'lucide-vue-next'
 import type { OrderStatus, OrderType, PaymentMethod, PaymentStatus } from '~~/shared/types'
 import {
   formatRupiah,
@@ -64,6 +64,7 @@ interface AdminOrder {
     amount: number
     referenceCode: string | null
     proofUrl: string | null
+    paidAt?: string | null
   } | null
   statusHistories: Array<{
     id: string
@@ -88,6 +89,7 @@ const statusNote = ref('')
 const nextPaymentStatus = ref<PaymentStatus>('PENDING')
 const updating = ref(false)
 const proofModalUrl = ref<string | null>(null)
+const receiptOpen = ref(false)
 
 // Cashier PIN lock state for CASH (Bayar di Tempat) payment section
 const cashPaymentUnlocked = ref(false)
@@ -359,6 +361,14 @@ function customerWaLink(order: AdminOrder) {
             <p class="text-xs text-stone-500">{{ formatDateJakarta(selectedOrder.createdAt) }}</p>
           </div>
           <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFF5F8] border border-pink-200 text-[#9D174D] text-xs font-bold hover:bg-pink-100 cursor-pointer"
+              @click="receiptOpen = true"
+            >
+              <Printer class="w-3.5 h-3.5" />
+              Struk
+            </button>
             <a
               :href="customerWaLink(selectedOrder)"
               target="_blank"
@@ -587,5 +597,8 @@ function customerWaLink(order: AdminOrder) {
         </div>
       </div>
     </div>
+
+    <!-- Official Digital Receipt Modal for Cashier -->
+    <OrderReceiptModal :open="receiptOpen" :order="selectedOrder" @close="receiptOpen = false" />
   </div>
 </template>
