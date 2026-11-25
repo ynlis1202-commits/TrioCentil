@@ -61,8 +61,8 @@ export default defineNuxtConfig({
     qrisStaticPayload: process.env.QRIS_STATIC_PAYLOAD || '',
     public: {
       appName: process.env.NUXT_PUBLIC_APP_NAME || 'Warung Makan TrioCentil',
-      appUrl: process.env.NUXT_PUBLIC_APP_URL || 'http://localhost:3000',
-      storeWhatsappNumber: process.env.STORE_WHATSAPP_NUMBER || '6281234567890',
+      appUrl: process.env.NUXT_PUBLIC_APP_URL || 'https://trio-centil.vercel.app',
+      storeWhatsappNumber: process.env.STORE_WHATSAPP_NUMBER || '62882020898753',
       timezone: 'Asia/Jakarta',
       currency: 'IDR'
     }
